@@ -107,9 +107,10 @@ int main() {
               strlen(echo_string), echo_string);
       response = &response_buffer[0];
     } else {
-      close(client_fd);
-      continue;
-    };
+      char *response_ok = "HTTP/1.1 200 OK\r\n\r\n";
+      char *response_not_found = "HTTP/1.1 404 Not Found\r\n\r\n";
+      response = (strcmp(path, "/") == 0) ? response_ok : response_not_found;
+    }
 
     printf("DEBUG: Response:\r\n\"\"\"\r\n%s\n\"\"\"\r\n", response);
     int bytes_sent = send(client_fd, response, strlen(response), 0);
