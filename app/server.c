@@ -85,20 +85,33 @@ int main() {
     }
 
     printf("DEBUG: Request:\r\n\"\"\"\r\n%s\"\"\"\r\n", buffer);
-    char method[16], path[256];
+    char method[16], path[256], protocol[16];
 
-    sscanf(buffer, "%s %s", method, path);
+    sscanf(buffer, "%s %s %s", method, path, protocol);
 
     printf("DEBUG: Method: %s\n", method);
     printf("DEBUG: Path: %s\n", path);
+    printf("DEBUG: Protocol: %s\n", protocol);
 
-    char *response_ok = "HTTP/1.1 200 OK\r\n\r\n";
-    char *response_not_found = "HTTP/1.1 404 Not Found\r\n\r\n";
+    // Echo Path
+    char *response;
+    if (strncmp(path, "/echo/", 6) == 0) {
+      char *echo_string = &path[6];
+      printf("DEBUG: Echo string: %s\n", echo_string);
+      char response_buffer[BUFFER_SIZE];
+      sprintf(response_buffer,
+              "HTTP/1.1 200 OK\r\n"
+              "Content-Type: text/plain\r\n"
+              "Content-Length: %ld\r\n\r\n"
+              "%s",
+              strlen(echo_string), echo_string);
+      response = &response_buffer[0];
+    } else {
+      close(client_fd);
+      continue;
+    };
 
-    char *response =
-        (strcmp(path, "/") == 0) ? response_ok : response_not_found;
-
-    printf("DEBUG: Response:\r\n\"\"\"\r\n%s\"\"\"\r\n", response);
+    printf("DEBUG: Response:\r\n\"\"\"\r\n%s\n\"\"\"\r\n", response);
     int bytes_sent = send(client_fd, response, strlen(response), 0);
   }
 
