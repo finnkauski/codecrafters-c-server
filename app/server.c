@@ -11,8 +11,6 @@
 #define PORT 4221
 #define BUFFER_SIZE 1024
 
-#define SUCCESS_200 "HTTP/1.1 200 OK\r\n\r\n";
-
 // Example Request:
 // GET /index.html HTTP/1.1\r\n
 // Host: localhost:4221\r\n
@@ -86,21 +84,22 @@ int main() {
       return 1;
     }
 
-    printf("Received:\r\n\"\"\"\r\n%s\"\"\"\r\n", buffer);
+    printf("DEBUG: Request:\r\n\"\"\"\r\n%s\"\"\"\r\n", buffer);
     char method[16], path[256];
 
     sscanf(buffer, "%s %s", method, path);
 
-    printf("METHOD: %s\n", method);
-    printf("PATH: %s\n", path);
+    printf("DEBUG: Method: %s\n", method);
+    printf("DEBUG: Path: %s\n", path);
 
-    char *reply;
-    if (strcmp(method, "/") == 0) {
-      reply = SUCCESS_200;
-    } else {
-      reply = "HTTP/1.1 404 NOT FOUND\r\n\r\n";
-    }
-    int bytes_sent = send(client_fd, &reply, strlen(reply), 0);
+    char *response_ok = "HTTP/1.1 200 OK\r\n\r\n";
+    char *response_not_found = "HTTP/1.1 404 Not Found\r\n\r\n";
+
+    char *response =
+        (strcmp(path, "/") == 0) ? response_ok : response_not_found;
+
+    printf("DEBUG: Response:\r\n\"\"\"\r\n%s\"\"\"\r\n", response);
+    int bytes_sent = send(client_fd, response, strlen(response), 0);
   }
 
   close(server_fd);
