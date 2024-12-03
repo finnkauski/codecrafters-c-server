@@ -1,6 +1,7 @@
 #include <errno.h>
 #include <netinet/in.h>
 #include <netinet/ip.h>
+#include <pthread.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,6 +16,99 @@ typedef struct {
   char *key;
   char *value;
 } Header;
+
+void *handle_connection(void *client_socket) {
+  printf("Client connected\n");
+  char buffer[BUFFER_SIZE];
+  char *response;
+
+  int client_fd = *((int *)client_socket);
+
+  // Handling of connection
+
+  int valread = read(client_fd, buffer, BUFFER_SIZE);
+
+  if (valread < 0) {
+    printf("Read failed: %s \n", strerror(errno));
+    return NULL;
+  }
+
+  // Parse headers
+  bool first = true;
+  int n_headers = 0;
+  char method[16], path[256], protocol[16];
+  char *token, *string;
+  string = &buffer[0];
+  Header headers[100];
+  while ((token = strsep(&string, "\r\n")) != NULL) {
+    if (first) {
+      // Parse method, path and protocol.
+      sscanf(token, "%s %s %s", method, path, protocol);
+      printf("DEBUG: Request:\r\n\"\"\"\r\n%s\"\"\"\r\n", buffer);
+      printf("DEBUG: Method: %s\n", method);
+      printf("DEBUG: Path: %s\n", path);
+      printf("DEBUG: Protocol: %s\n", protocol);
+      first = false;
+    } else if (strcmp(token, "") != 0) {
+      printf("DEBUG: Header \"%s\"", token);
+      char *key, *value;
+      key = strsep(&token, ": ");
+      value = &token[1];
+      printf("-> key: %s, value: %s\n", key, value);
+
+      Header header;
+      header.key = key;
+      header.value = value;
+      headers[n_headers++] = header;
+    }
+  }
+
+  // Echo Path
+  if (strncmp(path, "/echo/", 6) == 0) {
+    char *echo_string = &path[6];
+    printf("DEBUG: Echo string: %s\n", echo_string);
+    char response_buffer[BUFFER_SIZE];
+    sprintf(response_buffer,
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: text/plain\r\n"
+            "Content-Length: %ld\r\n\r\n"
+            "%s",
+            strlen(echo_string), echo_string);
+    response = &response_buffer[0];
+  } else if (strcmp(path, "/user-agent") == 0) {
+    char *user_agent;
+    for (int i = 0; i < n_headers; i++) {
+      if (strcmp(headers[i].key, "User-Agent") == 0) {
+        user_agent = headers[i].value;
+        printf("DEBUG: Found user-agent: %s\n", headers[i].value);
+        break;
+      }
+    }
+
+    char response_buf[100];
+    sprintf(response_buf,
+            "HTTP/1.1 200 OK\r\nContent-Length: %lu\r\nContent-Type: "
+            "text/plain\r\n\r\n%s",
+            strlen(user_agent), user_agent);
+    response = &response_buf[0];
+  } else if (strcmp(path, "/") == 0) {
+    char *identifier = "Art Server";
+    char response_buf[100];
+    sprintf(response_buf,
+            "HTTP/1.1 200 OK\r\nContent-Length: %lu\r\nContent-Type: "
+            "text/plain\r\n\r\n%s",
+            strlen(identifier), identifier);
+    response = &response_buf[0];
+  } else {
+    response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nContent-Type: "
+               "text/plain\r\n\r\n";
+  }
+
+  printf("DEBUG: Response:\r\n\"\"\"\r\n%s\n\"\"\"\r\n", response);
+  int bytes_sent = send(client_fd, response, strlen(response), 0);
+
+  return NULL;
+}
 
 int main() {
   // Disable output buffering
@@ -68,92 +162,13 @@ int main() {
   while (true) {
     int client_fd = accept(server_fd, (struct sockaddr *)&client_addr,
                            (unsigned int *)&client_addr_len);
-    printf("Client connected\n");
-
-    // Handling of connection
-    char buffer[BUFFER_SIZE];
-
-    int valread = read(client_fd, buffer, BUFFER_SIZE);
-
-    if (valread < 0) {
-      printf("Read failed: %s \n", strerror(errno));
-      return 1;
+    if (client_fd == -1) {
+      continue;
     }
 
-    // Parse headers
-    bool first = true;
-    int n_headers = 0;
-    char method[16], path[256], protocol[16];
-    char *token, *string;
-    string = &buffer[0];
-    Header headers[100];
-    while ((token = strsep(&string, "\r\n")) != NULL) {
-      if (first) {
-        // Parse method, path and protocol.
-        sscanf(token, "%s %s %s", method, path, protocol);
-        printf("DEBUG: Request:\r\n\"\"\"\r\n%s\"\"\"\r\n", buffer);
-        printf("DEBUG: Method: %s\n", method);
-        printf("DEBUG: Path: %s\n", path);
-        printf("DEBUG: Protocol: %s\n", protocol);
-        first = false;
-      } else if (strcmp(token, "") != 0) {
-        printf("DEBUG: Header \"%s\"", token);
-        char *key, *value;
-        key = strsep(&token, ": ");
-        value = &token[1];
-        printf("-> key: %s, value: %s\n", key, value);
-
-        Header header;
-        header.key = key;
-        header.value = value;
-        headers[n_headers++] = header;
-      }
-    }
-
-    // Echo Path
-    char *response;
-    if (strncmp(path, "/echo/", 6) == 0) {
-      char *echo_string = &path[6];
-      printf("DEBUG: Echo string: %s\n", echo_string);
-      char response_buffer[BUFFER_SIZE];
-      sprintf(response_buffer,
-              "HTTP/1.1 200 OK\r\n"
-              "Content-Type: text/plain\r\n"
-              "Content-Length: %ld\r\n\r\n"
-              "%s",
-              strlen(echo_string), echo_string);
-      response = &response_buffer[0];
-    } else if (strcmp(path, "/user-agent") == 0) {
-      char *user_agent;
-      for (int i = 0; i < n_headers; i++) {
-        if (strcmp(headers[i].key, "User-Agent") == 0) {
-          user_agent = headers[i].value;
-          printf("DEBUG: Found user-agent: %s\n", headers[i].value);
-          break;
-        }
-      }
-
-      char response_buf[100];
-      sprintf(response_buf,
-              "HTTP/1.1 200 OK\r\nContent-Length: %lu\r\nContent-Type: "
-              "text/plain\r\n\r\n%s",
-              strlen(user_agent), user_agent);
-      response = &response_buf[0];
-    } else if (strcmp(path, "/") == 0) {
-      char *identifier = "Art Server";
-      char response_buf[100];
-      sprintf(response_buf,
-              "HTTP/1.1 200 OK\r\nContent-Length: %lu\r\nContent-Type: "
-              "text/plain\r\n\r\n%s",
-              strlen(identifier), identifier);
-      response = &response_buf[0];
-    } else {
-      response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nContent-Type: "
-                 "text/plain\r\n\r\n";
-    }
-
-    printf("DEBUG: Response:\r\n\"\"\"\r\n%s\n\"\"\"\r\n", response);
-    int bytes_sent = send(client_fd, response, strlen(response), 0);
+    pthread_t new_process;
+    int *client_socket = &client_fd;
+    pthread_create(&new_process, NULL, handle_connection, client_socket);
   }
 
   close(server_fd);
