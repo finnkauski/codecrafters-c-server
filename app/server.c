@@ -11,12 +11,10 @@
 #define PORT 4221
 #define BUFFER_SIZE 1024
 
-// Example Request:
-// GET /index.html HTTP/1.1\r\n
-// Host: localhost:4221\r\n
-// User-Agent: curl/7.64.1\r\n
-// Accept: */*\r\n
-// \r\n
+typedef struct {
+  char *key;
+  char *value;
+} Header;
 
 int main() {
   // Disable output buffering
@@ -73,8 +71,6 @@ int main() {
     printf("Client connected\n");
 
     // Handling of connection
-    // tofree = string = strdup("abc,def,ghi");
-    // assert(string != NULL);
     char buffer[BUFFER_SIZE];
 
     int valread = read(client_fd, buffer, BUFFER_SIZE);
@@ -84,14 +80,35 @@ int main() {
       return 1;
     }
 
-    printf("DEBUG: Request:\r\n\"\"\"\r\n%s\"\"\"\r\n", buffer);
+    // Parse headers
+    bool first = true;
+    int n_headers = 0;
     char method[16], path[256], protocol[16];
+    char *token, *string;
+    string = &buffer[0];
+    Header headers[100];
+    while ((token = strsep(&string, "\r\n")) != NULL) {
+      if (first) {
+        // Parse method, path and protocol.
+        sscanf(token, "%s %s %s", method, path, protocol);
+        printf("DEBUG: Request:\r\n\"\"\"\r\n%s\"\"\"\r\n", buffer);
+        printf("DEBUG: Method: %s\n", method);
+        printf("DEBUG: Path: %s\n", path);
+        printf("DEBUG: Protocol: %s\n", protocol);
+        first = false;
+      } else if (strcmp(token, "") != 0) {
+        printf("DEBUG: Header \"%s\"", token);
+        char *key, *value;
+        key = strsep(&token, ": ");
+        value = &token[1];
+        printf("-> key: %s, value: %s\n", key, value);
 
-    sscanf(buffer, "%s %s %s", method, path, protocol);
-
-    printf("DEBUG: Method: %s\n", method);
-    printf("DEBUG: Path: %s\n", path);
-    printf("DEBUG: Protocol: %s\n", protocol);
+        Header header;
+        header.key = key;
+        header.value = value;
+        headers[n_headers++] = header;
+      }
+    }
 
     // Echo Path
     char *response;
@@ -106,10 +123,33 @@ int main() {
               "%s",
               strlen(echo_string), echo_string);
       response = &response_buffer[0];
+    } else if (strcmp(path, "/user-agent") == 0) {
+      char *user_agent;
+      for (int i = 0; i < n_headers; i++) {
+        if (strcmp(headers[i].key, "User-Agent") == 0) {
+          user_agent = headers[i].value;
+          printf("DEBUG: Found user-agent: %s\n", headers[i].value);
+          break;
+        }
+      }
+
+      char response_buf[100];
+      sprintf(response_buf,
+              "HTTP/1.1 200 OK\r\nContent-Length: %lu\r\nContent-Type: "
+              "text/plain\r\n\r\n%s",
+              strlen(user_agent), user_agent);
+      response = &response_buf[0];
+    } else if (strcmp(path, "/") == 0) {
+      char *identifier = "Art Server";
+      char response_buf[100];
+      sprintf(response_buf,
+              "HTTP/1.1 200 OK\r\nContent-Length: %lu\r\nContent-Type: "
+              "text/plain\r\n\r\n%s",
+              strlen(identifier), identifier);
+      response = &response_buf[0];
     } else {
-      char *response_ok = "HTTP/1.1 200 OK\r\n\r\n";
-      char *response_not_found = "HTTP/1.1 404 Not Found\r\n\r\n";
-      response = (strcmp(path, "/") == 0) ? response_ok : response_not_found;
+      response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nContent-Type: "
+                 "text/plain\r\n\r\n";
     }
 
     printf("DEBUG: Response:\r\n\"\"\"\r\n%s\n\"\"\"\r\n", response);
