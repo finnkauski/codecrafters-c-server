@@ -94,10 +94,10 @@ void *handle_connection(void *handler_args) {
   }
 
   // Parse headers
-  bool first = true;
-  int n_headers = 0;
+  bool first = true, headers_parsed = false;
+  int n_headers = 0, n_empty = 0;
   char method[16], path[256], protocol[16];
-  char *token, *string;
+  char *token, *string, *body;
   string = &buffer[0];
   Header headers[100];
   while ((token = strsep(&string, "\r\n")) != NULL) {
@@ -110,6 +110,7 @@ void *handle_connection(void *handler_args) {
       printf("DEBUG: Protocol: %s\n", protocol);
       first = false;
     } else if (strcmp(token, "") != 0) {
+      headers_parsed = true;
       printf("DEBUG: Header \"%s\"", token);
       char *key, *value;
       key = strsep(&token, ": ");
@@ -120,6 +121,16 @@ void *handle_connection(void *handler_args) {
       header.key = key;
       header.value = value;
       headers[n_headers++] = header;
+      n_empty = 0;
+    } else if (headers_parsed) {
+      // printf("DEBUG: N_empty \"%d\"\n", n_empty);
+      if (n_empty == 2) {
+        body = string;
+        printf("DEBUG: Body \"%s\"\n", body);
+        break;
+      } else {
+        n_empty++;
+      }
     }
   }
 
@@ -137,31 +148,50 @@ void *handle_connection(void *handler_args) {
           "Resulting string was truncated due to insufficient buffer size.\n");
       return NULL;
     }
-    printf("DEBUG: Requested filepath: %s\n", filepath);
-    char response_buffer[BUFFER_SIZE + 256];
-    FILE *fp = fopen(filepath, "rb");
-    if (fp == NULL) {
-      printf("DEBUG: File not found: %s.\n", filepath);
-      response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nContent-Type: "
-                 "text/plain\r\n\r\n";
+    if (strcmp(method, "POST") == 0) {
+      FILE *fp = fopen(filepath, "wb");
 
-    } else {
-      size_t file_size = 0;
-      unsigned char *data = read_file_to_buffer(filepath, fp, &file_size);
-
-      if (data) {
-        // Use the data...
-        printf("DEBUG: Read %zu bytes from the file.\n", file_size);
+      int file_size;
+      for (int i = 0; i < n_headers; i++) {
+        if (strcmp(headers[i].key, "Content-Length") == 0) {
+          file_size = atoi(headers[i].value);
+          printf("DEBUG: File size for POST request: %d\n", file_size);
+          break;
+        }
       }
-      sprintf(response_buffer,
-              "HTTP/1.1 200 OK\r\nContent-Length: %lu\r\nContent-Type: "
-              "application/octet-stream\r\n\r\n%s",
-              file_size, data);
 
-      response = &response_buffer[0];
+      size_t written = fwrite(body, 1, file_size, fp);
 
-      // Remember to free when done
-      free(data);
+      fclose(fp);
+      response = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\n\r\n";
+    } else if (strcmp(method, "GET")) {
+      printf("DEBUG: Requested filepath: %s\n", filepath);
+      char response_buffer[BUFFER_SIZE + 256];
+      FILE *fp = fopen(filepath, "rb");
+      if (fp == NULL) {
+        printf("DEBUG: File not found: %s.\n", filepath);
+        response =
+            "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nContent-Type: "
+            "text/plain\r\n\r\n";
+
+      } else {
+        size_t file_size = 0;
+        unsigned char *data = read_file_to_buffer(filepath, fp, &file_size);
+
+        if (data) {
+          // Use the data...
+          printf("DEBUG: Read %zu bytes from the file.\n", file_size);
+        }
+        sprintf(response_buffer,
+                "HTTP/1.1 200 OK\r\nContent-Length: %lu\r\nContent-Type: "
+                "application/octet-stream\r\n\r\n%s",
+                file_size, data);
+
+        response = &response_buffer[0];
+
+        // Remember to free when done
+        free(data);
+      }
     }
 
   } else if (strncmp(path, "/echo/", 6) == 0) {
