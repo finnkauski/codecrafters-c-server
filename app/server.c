@@ -17,16 +17,77 @@ typedef struct {
   char *value;
 } Header;
 
-void *handle_connection(void *client_socket) {
+typedef struct {
+  int client_fd;
+  char *folder;
+} HandlerArgs;
+
+unsigned char *read_file_to_buffer(const char *filename, size_t *size) {
+  FILE *fp = fopen(filename, "rb");
+  unsigned char *buffer = NULL;
+
+  if (!fp) {
+    fprintf(stderr, "ERROR: Could not open file %s\n", filename);
+    *size = 0;
+    return NULL;
+  }
+
+  // Move the file pointer to the end and determine file size
+  if (fseek(fp, 0, SEEK_END) != 0) {
+    fprintf(stderr, "ERROR: Could not seek in file %s\n", filename);
+    fclose(fp);
+    *size = 0;
+    return NULL;
+  }
+
+  long file_size = ftell(fp);
+  if (file_size < 0) {
+    fprintf(stderr, "ERROR: Could not get file size for %s\n", filename);
+    fclose(fp);
+    *size = 0;
+    return NULL;
+  }
+
+  // Allocate buffer
+  buffer = (unsigned char *)malloc((size_t)file_size + 1);
+  if (!buffer) {
+    fprintf(stderr, "ERROR: Out of memory while reading %s\n", filename);
+    fclose(fp);
+    *size = 0;
+    return NULL;
+  }
+
+  // Return to the beginning of the file
+  rewind(fp);
+
+  // Read the file into the buffer
+  size_t read_bytes = fread(buffer, 1, (size_t)file_size, fp);
+  fclose(fp);
+
+  if (read_bytes != (size_t)file_size) {
+    fprintf(stderr, "ERROR: Could not read entire file %s\n", filename);
+    free(buffer);
+    *size = 0;
+    return NULL;
+  }
+
+  // If you want a null-terminator for string compatibility
+  buffer[file_size] = '\0';
+
+  *size = (size_t)file_size;
+  return buffer;
+}
+
+void *handle_connection(void *handler_args) {
   printf("Client connected\n");
   char buffer[BUFFER_SIZE];
   char *response;
 
-  int client_fd = *((int *)client_socket);
+  HandlerArgs args = *((HandlerArgs *)handler_args);
 
   // Handling of connection
 
-  int valread = read(client_fd, buffer, BUFFER_SIZE);
+  int valread = read(args.client_fd, buffer, BUFFER_SIZE);
 
   if (valread < 0) {
     printf("Read failed: %s \n", strerror(errno));
@@ -64,7 +125,38 @@ void *handle_connection(void *client_socket) {
   }
 
   // Echo Path
-  if (strncmp(path, "/echo/", 6) == 0) {
+  if ((strncmp(path, "/file/", 6) == 0) && (args.folder != NULL)) {
+    char filepath[512]; // Resultant concatenated string (large enough to hold
+                        // both strings)
+    strncpy(filepath, args.folder, sizeof(filepath));
+    filepath[sizeof(filepath) - 1] = '\0'; // Ensure null termination
+    filepath[strlen(args.folder)] = '/';
+
+    // Concatenate the second string to the result using strlcat
+    if (strlcat(filepath, &path[6], sizeof(filepath)) >= sizeof(filepath)) {
+      printf(
+          "Resulting string was truncated due to insufficient buffer size.\n");
+      return NULL;
+    }
+    printf("DEBUG: Requested filepath: %s\n", filepath);
+    size_t file_size = 0;
+    unsigned char *data = read_file_to_buffer(filepath, &file_size);
+
+    if (data) {
+      // Use the data...
+      printf("DEBUG: Read %zu bytes from the file.\n", file_size);
+    }
+    char response_buffer[BUFFER_SIZE + 256];
+    sprintf(response_buffer,
+            "HTTP/1.1 200 OK\r\nContent-Length: %lu\r\nContent-Type: "
+            "text/plain\r\n\r\n%s",
+            file_size, data);
+
+    response = &response_buffer[0];
+
+    // Remember to free when done
+    free(data);
+  } else if (strncmp(path, "/echo/", 6) == 0) {
     char *echo_string = &path[6];
     printf("DEBUG: Echo string: %s\n", echo_string);
     char response_buffer[BUFFER_SIZE];
@@ -105,12 +197,24 @@ void *handle_connection(void *client_socket) {
   }
 
   printf("DEBUG: Response:\r\n\"\"\"\r\n%s\n\"\"\"\r\n", response);
-  int bytes_sent = send(client_fd, response, strlen(response), 0);
+  int bytes_sent = send(args.client_fd, response, strlen(response), 0);
 
   return NULL;
 }
 
-int main() {
+int main(int argc, char *argv[]) {
+  char *folder = NULL;
+  if (argc > 1) {
+    printf("Starting server with the following arguments: \n");
+    for (int i; i < argc; i++) {
+      char *argument = argv[i];
+      if (strcmp(argument, "--directory") == 0) {
+        folder = argv[i + 1];
+      }
+      printf("  -| \"%s\"\n", argument);
+    }
+  }
+
   // Disable output buffering
   setbuf(stdout, NULL);
   setbuf(stderr, NULL);
@@ -167,8 +271,10 @@ int main() {
     }
 
     pthread_t new_process;
-    int *client_socket = &client_fd;
-    pthread_create(&new_process, NULL, handle_connection, client_socket);
+
+    HandlerArgs handler_args = {.client_fd = client_fd, .folder = folder};
+    pthread_create(&new_process, NULL, handle_connection, &handler_args);
+    pthread_detach(new_process);
   }
 
   close(server_fd);
