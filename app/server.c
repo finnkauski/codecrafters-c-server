@@ -149,7 +149,7 @@ void *handle_connection(void *handler_args) {
     char response_buffer[BUFFER_SIZE + 256];
     sprintf(response_buffer,
             "HTTP/1.1 200 OK\r\nContent-Length: %lu\r\nContent-Type: "
-            "text/plain\r\n\r\n%s",
+            "application/octet-stream\r\n\r\n%s",
             file_size, data);
 
     response = &response_buffer[0];
