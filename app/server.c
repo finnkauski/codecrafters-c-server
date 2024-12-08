@@ -164,7 +164,7 @@ void *handle_connection(void *handler_args) {
 
       fclose(fp);
       response = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\n\r\n";
-    } else if (strcmp(method, "GET")) {
+    } else if (strcmp(method, "GET") == 0) {
       printf("DEBUG: Requested filepath: %s\n", filepath);
       char response_buffer[BUFFER_SIZE + 256];
       FILE *fp = fopen(filepath, "rb");
