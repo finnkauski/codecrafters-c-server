@@ -125,7 +125,7 @@ void *handle_connection(void *handler_args) {
   }
 
   // Echo Path
-  if ((strncmp(path, "/file/", 6) == 0) && (args.folder != NULL)) {
+  if ((strncmp(path, "/files/", 6) == 0) && (args.folder != NULL)) {
     char filepath[512]; // Resultant concatenated string (large enough to hold
                         // both strings)
     strncpy(filepath, args.folder, sizeof(filepath));
