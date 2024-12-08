@@ -22,8 +22,7 @@ typedef struct {
   char *folder;
 } HandlerArgs;
 
-unsigned char *read_file_to_buffer(const char *filename, size_t *size) {
-  FILE *fp = fopen(filename, "rb");
+unsigned char *read_file_to_buffer(char *filename, FILE *fp, size_t *size) {
   unsigned char *buffer = NULL;
 
   if (!fp) {
@@ -139,23 +138,32 @@ void *handle_connection(void *handler_args) {
       return NULL;
     }
     printf("DEBUG: Requested filepath: %s\n", filepath);
-    size_t file_size = 0;
-    unsigned char *data = read_file_to_buffer(filepath, &file_size);
-
-    if (data) {
-      // Use the data...
-      printf("DEBUG: Read %zu bytes from the file.\n", file_size);
-    }
     char response_buffer[BUFFER_SIZE + 256];
-    sprintf(response_buffer,
-            "HTTP/1.1 200 OK\r\nContent-Length: %lu\r\nContent-Type: "
-            "application/octet-stream\r\n\r\n%s",
-            file_size, data);
+    FILE *fp = fopen(filepath, "rb");
+    if (fp == NULL) {
+      printf("DEBUG: File not found: %s.\n", filepath);
+      response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nContent-Type: "
+                 "text/plain\r\n\r\n";
 
-    response = &response_buffer[0];
+    } else {
+      size_t file_size = 0;
+      unsigned char *data = read_file_to_buffer(filepath, fp, &file_size);
 
-    // Remember to free when done
-    free(data);
+      if (data) {
+        // Use the data...
+        printf("DEBUG: Read %zu bytes from the file.\n", file_size);
+      }
+      sprintf(response_buffer,
+              "HTTP/1.1 200 OK\r\nContent-Length: %lu\r\nContent-Type: "
+              "application/octet-stream\r\n\r\n%s",
+              file_size, data);
+
+      response = &response_buffer[0];
+
+      // Remember to free when done
+      free(data);
+    }
+
   } else if (strncmp(path, "/echo/", 6) == 0) {
     char *echo_string = &path[6];
     printf("DEBUG: Echo string: %s\n", echo_string);
