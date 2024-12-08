@@ -154,7 +154,7 @@ void *handle_connection(void *handler_args) {
 
     response = &response_buffer[0];
 
-    // Remember to free when done.
+    // Remember to free when done
     free(data);
   } else if (strncmp(path, "/echo/", 6) == 0) {
     char *echo_string = &path[6];
